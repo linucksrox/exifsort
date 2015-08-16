@@ -19,6 +19,7 @@ use Try::Tiny;
 use Getopt::Long;
 use Digest::MD5 'md5_hex';
 use File::Basename 'basename';
+use File::Basename 'fileparse';
 
 # ------------------------------------------------------------
 # THE SETUP
@@ -62,7 +63,7 @@ my $ftl = File::Util->new( { onfail => 'warn' } );
 # clean up the destination path.  We have to be careful with paths that
 # are simply "." or "./" because when joined to the date-based directory
 # tree they could otherwise become something quite different like:
-# ".YYYY/MM/DD" or ".//YYYY/MM/DD" or "/YYYY/MM/DD"
+# ".YYYY/MM" or ".//YYYY/MM" or "/YYYY/MM"
 
 $opts->{dest} =~ s(^\./)();
 
@@ -73,10 +74,34 @@ $opts->{dest} =~ s(/+$)() unless $opts->{dest} eq '/';
 
 die qq(Moving photos to "/" is not supported\n) if $opts->{dest} =~ /^\/+$/;
 
+# initialize count variables to report how many files were moved/renamed/overwritten
+my $test_moved = 0;
+my $test_renamed = 0;
+my $test_overwritten = 0;
+my $moved = 0;
+my $renamed = 0;
+my $overwritten = 0;
+my $failed = 0;
+my $duplicates = 0;
+my $dup_md5_match = 0;
+my $dup_md5_diff = 0;
+
 # this kicks off the directory traversal, executing the file relocation
 # callback for every subdirectory it encounters:
 
 $ftl->list_dir( $opts->{src} => { recurse  => 1, callback => \&move_files } );
+
+# report what we did
+printf qq{TEST MOVED: %s\n}, $test_moved;
+printf qq{TEST OVERWRITTEN: %s\n}, $test_overwritten;
+printf qq{TEST RENAMED: %s\n}, $test_renamed;
+printf qq{MOVED: %s\n}, $moved;
+printf qq{OVERWRITTEN: %s\n}, $overwritten;
+printf qq{RENAMED: %s\n}, $renamed;
+printf qq{FAILED: %s\n}, $failed;
+printf qq{DUPLICATE FILES: %s\n}, $duplicates;
+printf qq{  MD5 MATCHES: %s\n}, $dup_md5_match;
+printf qq{  MD5 DIFFS: %s\n}, $dup_md5_diff;
 
 # ------------------------------------------------------------
 # SUBROUTINES (most of the logic is here)
@@ -136,15 +161,15 @@ sub get_exif_date
 
    $exift->ExtractInfo( $file );
    
-   #printf qq{DateTimeOriginal: %s\n}, $exift->GetValue( DateTimeOriginal => $file ) || "";
+   printf qq{DateTimeOriginal: %s\n}, $exift->GetValue( DateTimeOriginal => $file ) || "";
    #printf qq{DateAcquired: %s\n}, $exift->GetValue( DateAcquired => $file ) || "";
    #printf qq{FileModifyDate: %s\n}, $exift->GetValue(FileModifyDate => $file ) || "";
 
    my $date = $exift->GetValue( DateTimeOriginal => $file );
    
-   $date ||= $exift->GetValue( DateAcquired => $file );
+   #$date ||= $exift->GetValue( DateAcquired => $file );
 
-   $date ||= $exift->GetValue( FileModifyDate => $file );
+   #$date ||= $exift->GetValue( FileModifyDate => $file );
       
    # Fix bad EXIF dates.
    unless ( !$date ) {
@@ -155,19 +180,19 @@ sub get_exif_date
    {
       $date = ( stat $file )[ 8 ];
 
-      my ( $y, $m, $d ) = ( localtime ( $date ) )[ 3, 4, 5 ];
+      my ( $y, $m ) = ( localtime ( $date ) )[ 3, 4, 5 ];
 
       $m += 1;
       $y += 1900;
 
       # this normalizes to the format we are already getting from EXIF
-      $date = join ':', $y, $m, $d;
+      $date = join ':', $y, $m;
    }
 
    return $date;
 }
 
-# Based on the date of the file, move it to a YYYY/MM/DD file heirarchy
+# Based on the date of the file, move it to a YYYY/MM file heirarchy
 # under the $opts->{dest} directory.  If running in test mode, just
 # print out what would have been done if you were not.  Handles same-name
 # files with care (you have to use -f or --force to overwrite)
@@ -176,9 +201,9 @@ sub move_file_by_date
 {
    my ( $src_file, $date ) = @_;
 
-   my ( $y, $m, $d ) = $date =~ /^(\d+):(\d+):(\d+)/;
+   my ( $y, $m ) = $date =~ /^(\d+):(\d+)/;
 
-   my $date_tree = sprintf '%d/%02d/%02d', $y, $m, $d;
+   my $date_tree = sprintf '%d/%02d', $y, $m;
 
    my $dest_dir  = $opts->{dest};
 
@@ -195,23 +220,99 @@ sub move_file_by_date
    {
       my $dest_file = $dest_dir . '/' . basename $src_file;
 
-      if ( -e $dest_file && ! $opts->{force} )
+      if ( -e $dest_file )
       {
-         printf qq{!! "%s" ALREADY EXISTS.  WON'T OVERWRITE WITHOUT --force\n},
-            $dest_file;
+         $duplicates++;
 
-         my $src_sum = md5_hex( $ftl->load_file( $src_file ) );
-         my $dst_sum = md5_hex( $ftl->load_file( $dest_file ) );
+         if ( ! $opts->{force} )
+         {
+             printf qq{!! "%s" ALREADY EXISTS.  WON'T OVERWRITE WITHOUT --force\n},
+                $dest_file;
 
-         printf qq{   ...SOURCE: %s\n}, $src_sum;
-         printf qq{   .....DEST: %s\n}, $dst_sum;
+             my $src_sum = md5_hex( $ftl->load_file( $src_file ) );
+             my $dst_sum = md5_hex( $ftl->load_file( $dest_file ) );
 
-         print $src_sum eq $dst_sum
-            ? "   ...RESULT: SAME\n\n"
-            : "   ...RESULT: DIFFERENT\n\n"
+             printf qq{   ...SOURCE: %s\n}, $src_sum;
+             printf qq{   .....DEST: %s\n}, $dst_sum;
+
+             print $src_sum eq $dst_sum
+                ? "   ...RESULT: SAME\n\n"
+                : "   ...RESULT: DIFFERENT\n\n";
+
+             if ( $src_sum eq $dst_sum )
+             {
+                 $dup_md5_match++;
+             }
+             else
+             {
+                 $dup_md5_diff++;
+             }
+         }
+         else
+         {
+             # if file exists and you use -f or --force, only overwrite IF md5 sum matches, otherwise rename file and move
+
+             my $src_sum = md5_hex( $ftl->load_file( $src_file ) );
+             my $dst_sum = md5_hex( $ftl->load_file( $dest_file ) );
+
+             printf qq{   ...SOURCE: %s\n}, $src_sum;
+             printf qq{   .....DEST: %s\n}, $dst_sum;
+
+             if ( $src_sum eq $dst_sum )
+             {
+                 # if the md5 sums are equal, we can overwrite safely
+
+                 $dup_md5_match++;
+
+                 if ( $opts->{test} )
+                 {
+                     $test_overwritten++;
+                     printf qq{%-80s => TESTING - NOT OVERWRITING INTO %s\n}, $src_file, $dest_dir;
+                     return;
+                 }
+
+                 $ftl->make_dir( $dest_dir => { if_not_exists => 1, onfail => 'die' } );
+
+                 move $src_file, $dest_file or die $!;
+
+                 printf qq{%-80s => OVERWRITING INTO %s\n}, $src_file, $dest_dir;
+
+                 $overwritten++;
+             }
+             else
+             {
+                 # since the md5 sums are not equal, but we want to force move, let's rename the destination filename to prevent overwriting
+
+                 $dup_md5_match++;
+
+                 my ($new_dest_file, $file_path, $file_ext) = fileparse($dest_file, '\.[^\.]*');
+                 $new_dest_file = $dest_dir . '/' . $new_dest_file . '_1' . $file_ext;
+
+                 if ( $opts->{test} )
+                 {
+                     $test_renamed++;
+                     printf qq{%-80s => TESTING - NOT MOVING AND RENAMING TO %s\n}, $src_file, $new_dest_file;
+                     return;
+                 }
+
+                 $ftl->make_dir( $dest_dir => { if_not_exists => 1, onfail => 'die' } );
+
+                 move $src_file, $new_dest_file or die $!;
+
+                 printf qq{%-80s => MOVED AND RENAMED TO %s\n}, $src_file, $new_dest_file;
+
+                 $renamed++;
+             }
+         }
       }
       else
       {
+         if ( $opts->{test} )
+         {
+             $test_moved++;
+             printf qq{%-80s => TESTING - NOT MOVING TO %s\n}, $src_file, $dest_dir;
+             return;
+         }
          printf qq{%-80s => TESTING - NOT MOVED TO %s\n}, $src_file, $dest_dir
             and return if $opts->{test};
 
@@ -224,7 +325,9 @@ sub move_file_by_date
    }
    catch
    {
-      printf qq{%-80s => FAILED TO MOVE FILE!\n}, $src_file, $y, $m, $d;
+      $failed++;
+
+      printf qq{%-80s => FAILED TO MOVE FILE!\n}, $src_file, $y, $m;
 
       warn $_;
    }
