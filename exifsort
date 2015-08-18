@@ -122,17 +122,19 @@ DESCRIPTION:
 
 ARGUMENTS AND FLAGS:
    -s, --source   Path to the directory that contains the images/movies that
-                  you want to sort into an organized destination directory
+                  you want to sort into an organized destination directory.
 
    -d, --dest     Path to the directory where the date-based organized
-                  directory tree begins.  Example: /home/tommy/media
+                  directory tree begins. Example: /home/tommy/media
 
-   -t, --test     Don't actually move any files.  Just show on the terminal
+   -t, --test     Don't actually move any files. Just show on the terminal
                   screen what exifsort would have done.
 
-   -f, --force    make exifsort overwrite files in destination directories
-                  that have the same name as the source file.  By default,
-                  exifsort won't overwrite files with the same name
+   -f, --force    Make exifsort overwrite files in destination directories
+                  that have the same name as the source file when the md5
+                  sum matches. If the md5 sum is different, append to the
+                  filename and save the copy. By default, exifsort won't
+                  overwrite files with the same name.
 __USAGE__
 
 # This is the callback used by File::Util when traversing the source
@@ -160,17 +162,17 @@ sub get_exif_date
    my $exift = Image::ExifTool->new;
 
    $exift->ExtractInfo( $file );
-   
-   printf qq{DateTimeOriginal: %s\n}, $exift->GetValue( DateTimeOriginal => $file ) || "";
+
+   #printf qq{DateTimeOriginal: %s\n}, $exift->GetValue( DateTimeOriginal => $file ) || "";
    #printf qq{DateAcquired: %s\n}, $exift->GetValue( DateAcquired => $file ) || "";
    #printf qq{FileModifyDate: %s\n}, $exift->GetValue(FileModifyDate => $file ) || "";
 
    my $date = $exift->GetValue( DateTimeOriginal => $file );
-   
+
    #$date ||= $exift->GetValue( DateAcquired => $file );
 
    #$date ||= $exift->GetValue( FileModifyDate => $file );
-      
+
    # Fix bad EXIF dates.
    unless ( !$date ) {
       $date =~ s/\//\:/g;
@@ -180,7 +182,7 @@ sub get_exif_date
    {
       $date = ( stat $file )[ 8 ];
 
-      my ( $y, $m ) = ( localtime ( $date ) )[ 3, 4, 5 ];
+      my ( $y, $m ) = ( localtime ( $date ) )[ 3, 4 ];
 
       $m += 1;
       $y += 1900;
@@ -202,8 +204,19 @@ sub move_file_by_date
    my ( $src_file, $date ) = @_;
 
    my ( $y, $m ) = $date =~ /^(\d+):(\d+)/;
+   # quick, reformat the month like this: 01-January
+   $m = (
+      qw/ 01-January   02-February  03-March
+          04-April     05-May       06-June
+          07-July      08-August    09-September
+          10-October   11-November  12-December  /
+    )[$m];
+    if ( !length $m )
+    {
+      $m = '00-unknown';
+    }
 
-   my $date_tree = sprintf '%d/%02d', $y, $m;
+   my $date_tree = sprintf '%d/%s', $y, $m;
 
    my $dest_dir  = $opts->{dest};
 
@@ -267,7 +280,7 @@ sub move_file_by_date
                  if ( $opts->{test} )
                  {
                      $test_overwritten++;
-                     printf qq{%-80s => TESTING - NOT OVERWRITING INTO %s\n}, $src_file, $dest_dir;
+                     printf qq{%-40s => TESTING - NOT OVERWRITING INTO %s\n}, $src_file, $dest_dir;
                      return;
                  }
 
@@ -275,7 +288,7 @@ sub move_file_by_date
 
                  move $src_file, $dest_file or die $!;
 
-                 printf qq{%-80s => OVERWRITING INTO %s\n}, $src_file, $dest_dir;
+                 printf qq{%-40s => OVERWRITING INTO %s\n}, $src_file, $dest_dir;
 
                  $overwritten++;
              }
@@ -283,7 +296,7 @@ sub move_file_by_date
              {
                  # since the md5 sums are not equal, but we want to force move, let's rename the destination filename to prevent overwriting
 
-                 $dup_md5_match++;
+                 $dup_md5_diff++;
 
                  my ($new_dest_file, $file_path, $file_ext) = fileparse($dest_file, '\.[^\.]*');
                  $new_dest_file = $dest_dir . '/' . $new_dest_file . '_1' . $file_ext;
@@ -291,7 +304,7 @@ sub move_file_by_date
                  if ( $opts->{test} )
                  {
                      $test_renamed++;
-                     printf qq{%-80s => TESTING - NOT MOVING AND RENAMING TO %s\n}, $src_file, $new_dest_file;
+                     printf qq{%-40s => TESTING - NOT MOVING AND RENAMING TO %s\n}, $src_file, $new_dest_file;
                      return;
                  }
 
@@ -299,7 +312,7 @@ sub move_file_by_date
 
                  move $src_file, $new_dest_file or die $!;
 
-                 printf qq{%-80s => MOVED AND RENAMED TO %s\n}, $src_file, $new_dest_file;
+                 printf qq{%-40s => MOVED AND RENAMED TO %s\n}, $src_file, $new_dest_file;
 
                  $renamed++;
              }
@@ -310,26 +323,25 @@ sub move_file_by_date
          if ( $opts->{test} )
          {
              $test_moved++;
-             printf qq{%-80s => TESTING - NOT MOVING TO %s\n}, $src_file, $dest_dir;
+             printf qq{%-40s => TESTING - NOT MOVING TO %s\n}, $src_file, $dest_dir;
              return;
          }
-         printf qq{%-80s => TESTING - NOT MOVED TO %s\n}, $src_file, $dest_dir
+         printf qq{%-40s => TESTING - NOT MOVED TO %s\n}, $src_file, $dest_dir
             and return if $opts->{test};
 
          $ftl->make_dir( $dest_dir => { if_not_exists => 1, onfail => 'die' } );
 
          move $src_file, $dest_file or die $!;
 
-         printf qq{%-80s => MOVED TO %s\n}, $src_file, $dest_dir;
+         printf qq{%-40s => MOVED TO %s\n}, $src_file, $dest_dir;
       }
    }
    catch
    {
       $failed++;
 
-      printf qq{%-80s => FAILED TO MOVE FILE!\n}, $src_file, $y, $m;
+      printf qq{%-40s => FAILED TO MOVE FILE!\n}, $src_file, $y, $m;
 
       warn $_;
    }
 }
-
