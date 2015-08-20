@@ -204,16 +204,18 @@ sub move_file_by_date
    my ( $src_file, $date ) = @_;
 
    my ( $y, $m ) = $date =~ /^(\d+):(\d+)/;
+   # debugging, let's find out why this is happening
+   print 'Original date: ' . $date . "\n\n";
    # quick, reformat the month like this: 01-January
    $m = (
-      qw/ 01-January   02-February  03-March
+      qw/ 00-Unknown 01-January   02-February  03-March
           04-April     05-May       06-June
           07-July      08-August    09-September
           10-October   11-November  12-December  /
     )[$m];
     if ( !length $m )
     {
-      $m = '00-unknown';
+      $m = '00ps how did that happen';
     }
 
    my $date_tree = sprintf '%d/%s', $y, $m;
