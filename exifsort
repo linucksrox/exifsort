@@ -204,8 +204,8 @@ sub move_file_by_date
    my ( $src_file, $date ) = @_;
 
    my ( $y, $m ) = $date =~ /^(\d+):(\d+)/;
-   # debugging, let's find out why this is happening
-   print 'Original date: ' . $date . "\n\n";
+   # extra output if you want to verify exif data read vs output destination
+   print "\n" . 'file: ' . $src_file . ' - ' . 'Original date: ' . $date . "\n";
    # quick, reformat the month like this: 01-January
    $m = (
       qw/ 00-Unknown 01-January   02-February  03-March
