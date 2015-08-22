@@ -333,9 +333,9 @@ sub move_file_by_date
 
          move $src_file, $dest_file or die $!;
 
-         printf qq{%-40s => MOVED TO %s\n}, $src_file, $dest_dir;
-
          $moved++;
+
+         printf qq{%-40s => MOVED TO %s\n}, $src_file, $dest_dir;
       }
    }
    catch
