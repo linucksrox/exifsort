@@ -30,7 +30,7 @@ So if you have a source directory like this...
 
 ...you can run exifsort like this...
 
-    $ exifsort --source ./source/ --dest ./target/
+    $ exifsort --source ./source/ --destination ./target/
 
 ...and the files will be moved to the target directory, which will then
 look like this:
