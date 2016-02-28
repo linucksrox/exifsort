@@ -58,7 +58,7 @@ die qq("$opts->{src}" is either not a directory or not writable by you.)
 # $ftl object to warn on errors instead of die in the middle of the
 # program when there might still be files to process
 
-my $ftl = File::Util->new( { onfail => 'warn' } );
+my $ftl = File::Util->new( { onfail => 'warn', read_limit => 21474836480 } );
 
 # clean up the destination path.  We have to be careful with paths that
 # are simply "." or "./" because when joined to the date-based directory
