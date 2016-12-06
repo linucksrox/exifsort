@@ -74,13 +74,13 @@ $opts->{dest} =~ s(/+$)() unless $opts->{dest} eq '/';
 
 die qq(Moving photos to "/" is not supported\n) if $opts->{dest} =~ /^\/+$/;
 
-# initialize count variables to report how many files were moved/renamed/overwritten
+# initialize count variables to report how many files were moved/renamed/deleted
 my $test_moved = 0;
 my $test_renamed = 0;
-my $test_overwritten = 0;
+my $test_deleted = 0;
 my $moved = 0;
 my $renamed = 0;
-my $overwritten = 0;
+my $deleted = 0;
 my $failed = 0;
 my $duplicates = 0;
 my $dup_md5_match = 0;
@@ -93,10 +93,10 @@ $ftl->list_dir( $opts->{src} => { recurse  => 1, callback => \&move_files } );
 
 # report what we did
 printf qq{TEST MOVED: %s\n}, $test_moved;
-printf qq{TEST OVERWRITTEN: %s\n}, $test_overwritten;
+printf qq{TEST DELETED: %s\n}, $test_deleted;
 printf qq{TEST RENAMED: %s\n}, $test_renamed;
 printf qq{MOVED: %s\n}, $moved;
-printf qq{OVERWRITTEN: %s\n}, $overwritten;
+printf qq{DELETED: %s\n}, $deleted;
 printf qq{RENAMED: %s\n}, $renamed;
 printf qq{FAILED: %s\n}, $failed;
 printf qq{DUPLICATE FILES: %s\n}, $duplicates;
@@ -202,8 +202,10 @@ sub get_exif_date
 sub move_file_by_date
 {
    my ( $src_file, $date ) = @_;
+   my $y;
+   my $m;
 
-   my ( $y, $m ) = $date =~ /^(\d+):(\d+)/;
+   ( $y, $m ) = $date =~ /^(\d+):(\d+)/;
    # extra output if you want to verify exif data read vs output destination
    print "\n" . 'file: ' . $src_file . ' - ' . 'Original date: ' . $date . "\n";
    # quick, reformat the month like this: 01-January
@@ -250,7 +252,7 @@ sub move_file_by_date
 
          if ( ! $opts->{force} )
          {
-             printf qq{!! "%s" ALREADY EXISTS.  WON'T OVERWRITE WITHOUT --force\n},
+             printf qq{!! "%s" ALREADY EXISTS. WILL DELETE SOURCE FILE WITH --force\n},
                 $dest_file;
 
              my $src_sum = md5_hex( $ftl->load_file( $src_file ) );
@@ -284,24 +286,31 @@ sub move_file_by_date
 
              if ( $src_sum eq $dst_sum )
              {
-                 # if the md5 sums are equal, we can overwrite safely
+                 # if the md5 sums are equal, we can safely remove the duplicate from the source
 
                  $dup_md5_match++;
 
                  if ( $opts->{test} )
                  {
-                     $test_overwritten++;
-                     printf qq{%-40s => TESTING - NOT OVERWRITING INTO %s\n}, $src_file, $dest_dir;
+                     $test_deleted++;
+                     printf qq{%-40s => TESTING - NOT DELETING DUPLICATE %s\n}, $src_file;
                      return;
                  }
 
                  $ftl->make_dir( $dest_dir => { if_not_exists => 1, onfail => 'die' } );
 
-                 move $src_file, $dest_file or die $!;
-
-                 printf qq{%-40s => OVERWRITING INTO %s\n}, $src_file, $dest_dir;
-
-                 $overwritten++;
+                 # if source and destination are the same, it's NOT SAFE to delete the source, as that is the only copy
+                 if ( $src_file eq $dest_file )
+                 {
+                   printf qq{%s = %s - SOURCE AND DESTINATION MATCH, WILL NOT DELETE SINGLE REMAINING COPY OF FILE\n}, $src_file, $dest_file;
+                 }
+                 else
+                 {
+                   # safe to delete duplicate from source
+                   unlink $src_file or die $!;
+                   printf qq{%-40s => DELETING DUPLICATE FROM SOURCE\n}, $src_file;
+                   $deleted++;
+                 }
              }
              else
              {
