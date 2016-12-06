@@ -218,7 +218,16 @@ sub move_file_by_date
       $m = '00ps how did that happen';
     }
 
-   my $date_tree = sprintf '%d/%s', $y, $m;
+   # use unknown_date if file didn't contain a valid exif date
+   my $date_tree;
+   if ( $y < 1995 )
+   {
+      $date_tree = "unknown_date";
+   }
+   else
+   {
+      $date_tree = sprintf '%s/%s', $y, $m;
+   }
 
    my $dest_dir  = $opts->{dest};
 
